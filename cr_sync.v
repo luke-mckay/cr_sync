@@ -24,7 +24,7 @@
 module cr_sync
 #(
   parameter pWidth = 1,  //!< Datapath Width
-  parameter pStages = 2, //!< @todo Number of stages
+  parameter pStages = 2, //!< Number of stages
   parameter pSimEn = 0,  //!< @todo Enable simulation mode (random output delay)
   parameter pRstMode = 0 //!< 0 -> asynchronous;  1 -> synchronous; >1 -> none
 )(
@@ -36,35 +36,102 @@ module cr_sync
   output reg  [pWidth-1:0] Q          //!< Data Out
 );
 
-reg [pWidth:0] tmp_q;
-
 generate
-  if (pRstMode == 0) // --------------  Async Reset
+  if (pStages == 1)
   begin
-    always @(posedge Clk or negedge Rst_n)
+    if (pRstMode == 0) // --------------  Async Reset
     begin
-    if (!Rst_n)
-      {Q,tmp_q} <= 0;
-    else
-      {Q,tmp_q} <= {tmp_q,D};
+      always @(posedge Clk or negedge Clk or negedge Rst_n)
+      begin
+        if (!Rst_n)
+        begin
+          Q <= 0;
+        end
+        else
+        begin
+          Q <= D;
+        end
+      end
+    end
+    else if (pRstMode == 1) // ---------  Sync Reset
+    begin
+      always @(posedge Clk or negedge Clk)
+      begin
+        if (!Rst_n)
+        begin
+          Q <= 0;
+        end
+        else
+        begin
+          Q <= D;
+        end
+      end
+    end
+    else // ----------------------------  No Reset
+    begin
+      always @(posedge Clk or negedge Clk)
+      begin
+        Q <= D;
+      end
     end
   end
-  else if (pRstMode == 1) // ---------  Sync Reset
+  else  // Multi-stage
   begin
-    always @(posedge Clk)
+    reg [pWidth*(pStages-1)-1:0] tmp_q;
+    if (pRstMode == 0) // --------------  Async Reset
     begin
-    if (!Rst_n)
-      {Q,tmp_q} <= 0;
-    else
-      {Q,tmp_q} <= {tmp_q,D};
+      always @(posedge Clk or negedge Rst_n)
+      begin
+        if (!Rst_n)
+        begin
+          tmp_q[pWidth-1:0] <= 0;
+          Q                 <= 0;
+        end
+        else
+        begin
+          tmp_q[pWidth-1:0] <= D;
+          Q                 <= tmp_q[pWidth*(pStages-1)-1:pWidth*(pStages-2)];
+        end
+      end
+      for (i = 1; i < pStages-1; i = i + 1)
+      begin : pipeline
+        always @ (posedge Clk or negedge Rst_n)
+          tmp_q[pWidth*(i+1)-1:pWidth*i] <= (!Rst_n) ? 0 : tmp_q[pWidth*i-1:pWidth*(i-1)];
+      end
+    end
+    else if (pRstMode == 1) // ---------  Sync Reset
+    begin
+      always @(posedge Clk)
+      begin
+        if (!Rst_n)
+        begin
+          tmp_q[pWidth-1:0] <= 0;
+          Q                 <= 0;
+        end
+        else
+        begin
+          tmp_q[pWidth-1:0] <= D;
+          Q                 <= tmp_q[pWidth*(pStages-1)-1:pWidth*(pStages-2)];
+        end
+      end
+      for (i = 1; i < pStages-1; i = i + 1)
+      begin : pipeline
+        always @ (posedge Clk)
+          tmp_q[pWidth*(i+1)-1:pWidth*i] <= (!Rst_n) ? 0 : tmp_q[pWidth*i-1:pWidth*(i-1)];
+      end
+    end
+    else // ----------------------------  No Reset
+    begin
+      always @(posedge Clk)
+      begin
+        tmp_q[pWidth-1:0] <= D;
+        Q                 <= tmp_q[pWidth*(pStages-1)-1:pWidth*(pStages-2)];
+      end
+      for (i = 1; i < pStages-1; i = i + 1)
+      begin : pipeline
+        always @ (posedge Clk)
+          tmp_q[pWidth*(i+1)-1:pWidth*i] <= tmp_q[pWidth*i-1:pWidth*(i-1)];
+      end
     end
   end
-  else // ----------------------------  No Reset
-  begin
-    always @(posedge Clk)
-    begin
-      {Q,tmp_q} <= {tmp_q,D};
-    end
-  end
-
 endmodule
